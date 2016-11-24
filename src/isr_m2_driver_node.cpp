@@ -76,7 +76,7 @@ int main(int argc, char** argv)
 	tf::TransformBroadcaster tf_odom_broadcaster;
 
 	// create odometry publisher:
-    ros::Publisher pub_odometry = nh.advertise<isr_m2_driver::RobotStatusStamped>("odom", 10);
+    ros::Publisher pub_odometry = nh.advertise<nav_msgs::Odometry>("odom", 10);
 
 	// instanciate a read_encoder service proxy:
 	ros::ServiceClient encoder_value_client = nh.serviceClient<isr_m2_driver::EncoderValue>("encoder_value");
@@ -104,6 +104,7 @@ int main(int argc, char** argv)
 
     // set loop rate as 10hz
     ros::Rate loop_rate(10);
+    ros::Time start_time = ros::Time::now();
 
     // main-loop:
     while (ros::ok())
@@ -158,7 +159,12 @@ int main(int argc, char** argv)
 			isr_m2.SetEncoderValue(
 				encoder_value.response.l_pulse_count, 
 				encoder_value.response.r_pulse_count, 
-				(int)(curr_time.toSec()*1000)/*encoder_value.response.time_ms*/);
+                (int)((cur_time-start_time).toSec()*1000)/*encoder_value.response.time_ms*/);
+
+            ROS_INFO("Odom: %d %d %d"
+                     , encoder_value.response.l_pulse_count
+                     , encoder_value.response.r_pulse_count
+                     , (int)((cur_time-start_time).toSec()*1000));
 
 			// broadcast odometry transform
 			geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(isr_m2.Position.theta);
@@ -181,9 +187,14 @@ int main(int argc, char** argv)
 			odom.pose.pose.position.y = isr_m2.Position.y;
 			odom.pose.pose.position.x = 0;
 			odom.pose.pose.orientation = odom_quat;
-			odo.pose.covariance.fill(0);
-			odo.twist.twist.fill(0);
-			odo.twist.covariance.fill(0);
+            odom.pose.covariance.fill(0);
+            odom.twist.twist.linear.x = 0;
+            odom.twist.twist.linear.y = 0;
+            odom.twist.twist.linear.z = 0;
+            odom.twist.twist.angular.x = 0;
+            odom.twist.twist.angular.y = 0;
+            odom.twist.twist.angular.z = 0;
+            odom.twist.covariance.fill(0);
             pub_odometry.publish(odom);
 		}
 		else

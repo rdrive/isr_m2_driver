@@ -1,4 +1,5 @@
 #include "isr_m2.h"
+#include <math.h>
 
 namespace rdrive {
 namespace isr_m2 {
@@ -59,7 +60,7 @@ void ISR_M2::DeadReckoning(long dl, long dr, int dt)
 	double delDistLeft_m = r*dl;
 	double delDistRight_m = r*dr;
 	double leftWheelVelocity_mps = delDistLeft_m / (double)dt * 1000.0; //m/s
-	double rightWheelVelocity_mps = delDistRight_m / (double)dt) * 1000.0;
+    double rightWheelVelocity_mps = delDistRight_m / (double)dt * 1000.0;
 	double v = (delDistLeft_m + delDistRight_m) / 2.0;
 	double w = (delDistRight_m - delDistLeft_m) / WHEEL_BASE_M;
 
