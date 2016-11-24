@@ -131,7 +131,7 @@ include_directories(
 # add_dependencies(isr_m2_driver ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(isr_m2_driver_node src/isr_m2_driver_node.cpp)
+add_executable(isr_m2_driver_node src/isr_m2_driver_node.cpp src/isr_m2.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above

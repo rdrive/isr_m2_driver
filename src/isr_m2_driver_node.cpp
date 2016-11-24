@@ -1,8 +1,13 @@
-#include "ros/ros.h"
+#include <ros/ros.h>
 #include "isr_m2_driver/RobotStatus.h"
+#include "isr_m2_driver/EncoderValue.h"
 #include "isr_m2_driver/SetWheelVelocity.h"
 #include "isr_m2_driver/RobotStatusStamped.h"
-#include "geometry_msgs/Twist.h"
+#include <geometry_msgs/Twist.h>
+#include <geometry_msgs/Quaternion.h>
+#include <nav_msgs/Odometry.h>
+#include <tf/transform_broadcaster.h>
+#include "isr_m2.h"
 #include <cstdlib>
 
 #define WHEEL_RADIUS_M  0.155   // m
@@ -53,29 +58,43 @@ int main(int argc, char** argv)
 	ros::init(argc, argv, "isr_m2_driver");
 	ros::NodeHandle nh;
 
+	// instanciate robot instance:
+	rdrive::isr_m2::ISR_M2 isr_m2;
+	isr_m2.Initialize();
+
     // subscribe to cmd_vel topic:
     ros::Subscriber sub_cmd_vel = nh.subscribe("cmd_vel", 10, onCmdVel);
 
     // create robot status publisher:
     ros::Publisher pub_robot_status = nh.advertise<isr_m2_driver::RobotStatusStamped>("robot_status", 1, true);
 
-    // instanciate a service proxy:
-	ros::ServiceClient client = nh.serviceClient<isr_m2_driver::RobotStatus>("robot_status");
+    // instanciate a robot_status service proxy:
+	ros::ServiceClient robot_status_client = nh.serviceClient<isr_m2_driver::RobotStatus>("robot_status");
+	isr_m2_driver::EncoderValue encoder_value;
+
+	// create odometry transform broadcaster:
+	tf::TransformBroadcaster tf_odom_broadcaster;
+
+	// create odometry publisher:
+    ros::Publisher pub_odometry = nh.advertise<isr_m2_driver::RobotStatusStamped>("odom", 10);
+
+	// instanciate a read_encoder service proxy:
+	ros::ServiceClient encoder_value_client = nh.serviceClient<isr_m2_driver::EncoderValue>("encoder_value");
 
     // wait until the communication is established:
-    isr_m2_driver::RobotStatus srv, srv_old;
-    bool srv_changed = false;
+    isr_m2_driver::RobotStatus robot_status, robot_status_old;
+    bool robot_status_changed = false;
     ROS_INFO("Waiting for robot_status() service is ready...");
     ros::service::waitForService("robot_status", ros::Duration(-1));
     ROS_INFO("robot_status() service is ready.");
     ros::Duration(0.5).sleep(); // sleep for half a second
-    if (client.call(srv))
+    if (robot_status_client.call(robot_status))
     {
         ROS_INFO("Robot Status: %d %d %d"
-            , srv.response.motor_enabled
-            , srv.response.motor_stopped
-            , srv.response.estop_pressed);
-        srv_old = srv;
+            , robot_status.response.motor_enabled
+            , robot_status.response.motor_stopped
+            , robot_status.response.estop_pressed);
+        robot_status_old = robot_status;
     }
     else
     {
@@ -89,45 +108,88 @@ int main(int argc, char** argv)
     // main-loop:
     while (ros::ok())
     {
-        if (client.call(srv))
+		// update robot_status and publish it if changed:
+        if (robot_status_client.call(robot_status))
         {
             /*ROS_INFO("Robot Status: %d %d %d"
-                , srv.response.motor_enabled
-                , srv.response.motor_stopped
-                , srv.response.estop_pressed);*/
-            if (srv_old.response.motor_enabled != srv.response.motor_enabled)
+                , robot_status.response.motor_enabled
+                , robot_status.response.motor_stopped
+                , robot_status.response.estop_pressed);*/
+            if (robot_status_old.response.motor_enabled != robot_status.response.motor_enabled)
             {
-                ROS_INFO("Motor is %s", (srv.response.motor_enabled ? "ON" : "OFF"));
-                srv_changed = true;
+                ROS_INFO("Motor is %s", (robot_status.response.motor_enabled ? "ON" : "OFF"));
+                robot_status_changed = true;
             }
-            if (srv_old.response.motor_stopped != srv.response.motor_stopped)
+            if (robot_status_old.response.motor_stopped != robot_status.response.motor_stopped)
             {
-                ROS_INFO("Motor is %s", (srv.response.motor_stopped ? "Stopped" : "Resumed"));
-                srv_changed = true;
+                ROS_INFO("Motor is %s", (robot_status.response.motor_stopped ? "Stopped" : "Resumed"));
+                robot_status_changed = true;
             }
-            if (srv_old.response.estop_pressed != srv.response.estop_pressed)
+            if (robot_status_old.response.estop_pressed != robot_status.response.estop_pressed)
             {
-                ROS_INFO("E-Stop button is %s", (srv.response.estop_pressed ? "Pressed" : "Released"));
-                srv_changed = true;
+                ROS_INFO("E-Stop button is %s", (robot_status.response.estop_pressed ? "Pressed" : "Released"));
+                robot_status_changed = true;
             }
 
-            if (srv_changed)
+            if (robot_status_changed)
             {
                 isr_m2_driver::RobotStatusStamped msg;
                 msg.header.stamp = ros::Time::now();
-                msg.motor_enabled = srv.response.motor_enabled;
-                msg.motor_stopped = srv.response.motor_stopped;
-                msg.estop_pressed = srv.response.estop_pressed;
+                msg.motor_enabled = robot_status.response.motor_enabled;
+                msg.motor_stopped = robot_status.response.motor_stopped;
+                msg.estop_pressed = robot_status.response.estop_pressed;
                 pub_robot_status.publish(msg);
 
-                srv_old = srv;
-                srv_changed = false;
+                robot_status_old = robot_status;
+                robot_status_changed = false;
             }
         }
         else
         {
             ROS_ERROR("Failed to call service robot_status or the service is not ready.");
         }
+
+		// estimate robot pose and publish it:
+		if (encoder_value_client.call(encoder_value))
+        {
+			ros::Time cur_time = ros::Time::now();
+
+			// TODO: get exact time from DSP!
+			isr_m2.SetEncoderValue(
+				encoder_value.response.l_pulse_count, 
+				encoder_value.response.r_pulse_count, 
+				(int)(curr_time.toSec()*1000)/*encoder_value.response.time_ms*/);
+
+			// broadcast odometry transform
+			geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(isr_m2.Position.theta);
+			geometry_msgs::TransformStamped odom_trans;
+			odom_trans.header.stamp = cur_time;
+			odom_trans.header.frame_id = "odom";
+			odom_trans.child_frame_id = "isr_m2";
+			odom_trans.transform.translation.x = isr_m2.Position.x;
+			odom_trans.transform.translation.y = isr_m2.Position.y;
+			odom_trans.transform.translation.z = 0.0;
+			odom_trans.transform.rotation = odom_quat;
+			tf_odom_broadcaster.sendTransform(odom_trans);
+
+			// publish odometry message
+			nav_msgs::Odometry odom;
+            odom.header.stamp = cur_time;
+			odom.header.frame_id = "odom";
+			odom.child_frame_id = "isr_m2";
+			odom.pose.pose.position.x = isr_m2.Position.x;
+			odom.pose.pose.position.y = isr_m2.Position.y;
+			odom.pose.pose.position.x = 0;
+			odom.pose.pose.orientation = odom_quat;
+			odo.pose.covariance.fill(0);
+			odo.twist.twist.fill(0);
+			odo.twist.covariance.fill(0);
+            pub_odometry.publish(odom);
+		}
+		else
+		{
+			ROS_ERROR("Failed to call service encoder_value or the service is not ready.");
+		}
 
         ros::spinOnce();
         loop_rate.sleep();
