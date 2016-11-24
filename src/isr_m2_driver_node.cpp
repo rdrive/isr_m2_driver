@@ -65,13 +65,16 @@ int main(int argc, char** argv)
     // wait until the communication is established:
     isr_m2_driver::RobotStatus srv, srv_old;
     bool srv_changed = false;
+    ROS_INFO("Waiting for robot_status() service is ready...");
     ros::service::waitForService("robot_status", ros::Duration(-1));
+    ROS_INFO("robot_status() service is ready.");
+    ros::Duration(0.5).sleep(); // sleep for half a second
     if (client.call(srv))
     {
-        /*ROS_INFO("Robot Status: %d %d %d"
+        ROS_INFO("Robot Status: %d %d %d"
             , srv.response.motor_enabled
             , srv.response.motor_stopped
-            , srv.response.estop_pressed);*/
+            , srv.response.estop_pressed);
         srv_old = srv;
     }
     else
