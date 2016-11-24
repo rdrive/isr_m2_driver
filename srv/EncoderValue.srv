@@ -1,0 +1,4 @@
+---
+uint32 l_pulse_count
+uint32 r_pulse_count
+
