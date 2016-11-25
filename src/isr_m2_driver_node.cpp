@@ -161,10 +161,10 @@ int main(int argc, char** argv)
 				encoder_value.response.r_pulse_count, 
                 (int)((cur_time-start_time).toSec()*1000)/*encoder_value.response.time_ms*/);
 
-            ROS_INFO("Odom: %d %d %d"
+            /*ROS_INFO("Odom: %d %d %d"
                      , encoder_value.response.l_pulse_count
                      , encoder_value.response.r_pulse_count
-                     , (int)((cur_time-start_time).toSec()*1000));
+                     , (int)((cur_time-start_time).toSec()*1000));*/
 
 			// broadcast odometry transform
 			geometry_msgs::Quaternion odom_quat = tf::createQuaternionMsgFromYaw(isr_m2.Position.theta);
@@ -185,7 +185,7 @@ int main(int argc, char** argv)
 			odom.child_frame_id = "isr_m2";
 			odom.pose.pose.position.x = isr_m2.Position.x;
 			odom.pose.pose.position.y = isr_m2.Position.y;
-			odom.pose.pose.position.x = 0;
+            odom.pose.pose.position.z = 0;
 			odom.pose.pose.orientation = odom_quat;
             odom.pose.covariance.fill(0);
             odom.twist.twist.linear.x = 0;
